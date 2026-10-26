@@ -52,7 +52,7 @@ The application discovers the database schema at runtime, asks an LLM to draft a
 
 The diagram shows every component and the end-to-end flow of one question (numbered badges). The source is [`docs/architecture.html`](docs/architecture.html). To regenerate the PNG after editing it, run `uv run --no-project --with playwright python docs/render_architecture.py`.
 
-Simplified view:
+<!-- Simplified view:
 
 ```mermaid
 flowchart LR
@@ -65,7 +65,7 @@ flowchart LR
     DB -->|Read-only query results| Graph
     Graph -->|SSE status, SQL, result, chart, tokens| API
     API --> UI
-```
+``` -->
 
 In the Docker deployment, FastAPI serves the built frontend and the API from **one origin**, normally `http://localhost:8000`. During frontend development, Vite serves the UI at `http://localhost:5173` and proxies `/api` requests to FastAPI.
 

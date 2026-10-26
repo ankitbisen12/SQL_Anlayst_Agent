@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Airbnb SQL Analyst - Architecture</title>
+<!--
+  Source of docs/architecture.png. Regenerate with:
+    uv run --no-project --with playwright python docs/render_architecture.py
+  Layout: absolutely positioned zones; connectors are drawn by the script at the bottom from element positions.
+-->
+<style>
+  :root {
+    --ink: #16161a; --ink-2: #4a4a52; --ink-3: #7a7a84; --line: #d9d9de; --paper: #ffffff; --canvas: #f6f6f3;
+    --fe: #2a78d6; --fe-soft: #eaf2fc;
+    --be: #6250d6; --be-soft: #efedfb;
+    --ag: #12916a; --ag-soft: #e7f6f0;
+    --gd: #d4561f; --gd-soft: #fdefe8;
+    --ut: #5b6472; --ut-soft: #eff1f4;
+    --ai: #111111; --ai-soft: #f1f1f1;
+    --db: #1f8f5f; --db-soft: #e6f5ed;
+    --ops: #8a6200; --ops-soft: #fbf4e2;
+    --sse: #d4561f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); font-family: 'Segoe UI', Inter, system-ui, sans-serif; color: var(--ink); }
+  #canvas { position: relative; width: 2840px; height: 1600px; background: var(--canvas); overflow: hidden; }
+  svg#wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; overflow: visible; }
+
+  .title { position: absolute; left: 40px; top: 28px; }
+  .title h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; font-weight: 750; }
+  .title p { margin: 6px 0 0; font-size: 17px; color: var(--ink-2); }
+  .stack { position: absolute; right: 40px; top: 36px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 1200px; }
+  .stack span { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink-2); font-weight: 600; }
+
+  .zone { position: absolute; border-radius: 18px; border: 2px solid; background: var(--paper); padding: 54px 16px 16px; }
+  .zone > .zh { position: absolute; left: 0; right: 0; top: 0; height: 42px; border-radius: 16px 16px 0 0; display: flex; align-items: center; gap: 10px; padding: 0 16px; color: #fff; font-weight: 700; font-size: 17px; }
+  .zone > .zh small { font-weight: 500; opacity: 0.85; font-size: 13px; margin-left: auto; }
+  .z-fe { border-color: var(--fe); } .z-fe > .zh { background: var(--fe); }
+  .z-be { border-color: var(--be); } .z-be > .zh { background: var(--be); }
+  .z-ag { border-color: var(--ag); } .z-ag > .zh { background: var(--ag); }
+  .z-md { border-color: var(--ut); } .z-md > .zh { background: var(--ut); }
+  .z-ex { border-color: var(--ink); } .z-ex > .zh { background: var(--ink); }
+  .z-ops { border-color: var(--ops); } .z-ops > .zh { background: var(--ops); }
+
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .group { border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 7px; }
+  .group > .gh { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin: 0 2px 2px; }
+  .g-fe { background: var(--fe-soft); } .g-fe > .gh { color: var(--fe); }
+  .g-be { background: var(--be-soft); } .g-be > .gh { color: var(--be); }
+  .g-gd { background: var(--gd-soft); } .g-gd > .gh { color: var(--gd); }
+  .g-ut { background: var(--ut-soft); } .g-ut > .gh { color: var(--ut); }
+  .g-ai { background: var(--ai-soft); } .g-ai > .gh { color: var(--ai); }
+  .g-db { background: var(--db-soft); } .g-db > .gh { color: var(--db); }
+  .g-ops { background: var(--ops-soft); } .g-ops > .gh { color: var(--ops); }
+
+  .box { background: var(--paper); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; font-size: 13.5px; line-height: 1.35; position: relative; }
+  .box b { font-weight: 650; }
+  .box .f { font-family: Consolas, 'Cascadia Code', monospace; font-size: 13px; font-weight: 700; }
+  .box .d { color: var(--ink-2); font-size: 12.5px; display: block; margin-top: 1px; }
+  .row { display: flex; gap: 7px; } .row > * { flex: 1; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin: 3px 3px 0 0; }
+  .t-low { background: #e8f3ff; color: #1c5cab; } .t-med { background: #efedfb; color: #4a3aa7; } .t-high { background: #fdecef; color: #a1243c; }
+  .t-det { background: #eef0f3; color: #3c4350; } .t-ev { background: #fdefe8; color: #b2461a; }
+  .t-ok { background: #e6f5ed; color: #176b47; }
+
+  .actor { display: flex; align-items: center; gap: 12px; border: 2px dashed var(--fe); background: var(--paper); border-radius: 12px; padding: 10px 12px; }
+  .actor svg { flex: none; }
+  .cyl { border-radius: 50% / 14px; }
+
+  /* LangGraph nodes */
+  .node { position: absolute; width: 420px; background: var(--paper); border: 2px solid var(--ag); border-radius: 12px; padding: 7px 12px; font-size: 13px; line-height: 1.35; z-index: 6; }
+  .node .f { font-family: Consolas, monospace; font-weight: 700; font-size: 14.5px; color: var(--ag); }
+  .node .d { color: var(--ink-2); display: block; font-size: 12.5px; }
+  .node .ev { position: absolute; right: 8px; top: 7px; }
+  .node.term { width: 225px; border-color: #b9bcc4; border-style: dashed; background: #fafafa; }
+  .node.term .f { color: var(--ink-2); }
+  .pill { position: absolute; width: 120px; height: 34px; border-radius: 999px; background: var(--ag); color: #fff; font-weight: 800; display: grid; place-items: center; font-size: 14px; letter-spacing: 0.06em; z-index: 6; }
+  .state { position: absolute; left: 16px; right: 16px; bottom: 16px; background: var(--ag-soft); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+  .state b { color: var(--ag); }
+
+  /* Wires */
+  .wl { font-size: 12.5px; font-weight: 650; fill: var(--ink); }
+  .wl-bg { fill: var(--canvas); }
+  .legend { position: absolute; left: 40px; top: 1548px; display: flex; gap: 34px; align-items: center; font-size: 14px; color: var(--ink-2); }
+  .legend .li { display: flex; align-items: center; gap: 10px; }
+  .num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 800; }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <svg id="wires" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="m-req" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16161a"/></marker>
+      <marker id="m-sse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d4561f"/></marker>
+      <marker id="m-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#12916a"/></marker>
+      <marker id="m-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a8d96"/></marker>
+      <marker id="m-ops" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a6200"/></marker>
+      <marker id="m-db" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f8f5f"/></marker>
+    </defs>
+  </svg>
+
+  <div class="title">
+    <h1>Airbnb SQL Analyst: System Architecture &amp; Request Flow</h1>
+    <p>Natural-language questions → guarded, read-only SQL on Postgres → streamed answer with table, chart and SQL</p>
+  </div>
+  <div class="stack">
+    <span>React 19 + Vite</span><span>Recharts</span><span>FastAPI + SSE</span><span>LangGraph</span><span>OpenAI (3 tiers)</span>
+    <span>sqlglot</span><span>psycopg 3 pool</span><span>Supabase Postgres</span><span>Docker · Render · GitHub Actions</span>
+  </div>
+
+  <!-- ===================== 1. FRONTEND ===================== -->
+  <div class="zone z-fe" style="left:40px; top:140px; width:430px; height:1020px;">
+    <div class="zh">① Frontend <small>frontend/ · React + Vite (JS)</small></div>
+    <div class="col">
+      <div class="actor" id="user">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2a78d6" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        <div><b>User (Browser)</b><span class="d" style="display:block;color:var(--ink-2);font-size:12.5px">Asks questions · views answers · picks theme</span></div>
+      </div>
+
+      <div class="group g-fe">
+        <div class="gh">UI components · src/components</div>
+        <div class="box" id="app"><span class="f">App.jsx</span><span class="d">Layout, conversation state, ask / retry / stop, auto-scroll</span></div>
+        <div class="row">
+          <div class="box" id="sidebar"><span class="f">Sidebar.jsx</span><span class="d">History · New chat · DB status</span></div>
+          <div class="box"><span class="f">ThemeSwitch.jsx</span><span class="d">Light · Dark · System</span></div>
+        </div>
+        <div class="row">
+          <div class="box"><span class="f">Welcome.jsx</span><span class="d">Example questions</span></div>
+          <div class="box" id="composer"><span class="f">Composer.jsx</span><span class="d">Input · Send / Stop</span></div>
+        </div>
+        <div class="box" id="message"><span class="f">Message.jsx</span><span class="d">Progress steps · streamed Markdown answer · copy / regenerate · errors</span></div>
+        <div class="box" id="result"><span class="f">ResultCard.jsx</span><span class="d">Chart ⇄ Table toggle · row count · CSV download</span>
+          <div class="row" style="margin-top:6px">
+            <div class="box" style="padding:5px 7px"><span class="f" style="font-size:12px">ChartView</span><span class="d">Recharts (lazy)</span></div>
+            <div class="box" style="padding:5px 7px"><span class="f" style="font-size:12px">DataTable</span><span class="d">sortable</span></div>
+            <div class="box" style="padding:5px 7px"><span class="f" style="font-size:12px">MetricCard</span><span class="d">KPI</span></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="box"><span class="f">SqlPanel.jsx</span><span class="d">Highlighted SQL + copy</span></div>
+          <div class="box"><span class="f">CopyButton.jsx</span><span class="d">Clipboard</span></div>
+        </div>
+      </div>
+
+      <div class="group g-fe">
+        <div class="gh">Hooks · src/hooks</div>
+        <div class="box" id="useConv"><span class="f">useConversations</span><span class="d">Chat history (≤30), debounced save</span></div>
+        <div class="row">
+          <div class="box" id="useTheme"><span class="f">useTheme</span><span class="d">data-theme on &lt;html&gt;</span></div>
+          <div class="box" id="useHealth"><span class="f">useHealth</span><span class="d">polls readiness</span></div>
+        </div>
+      </div>
+
+      <div class="group g-fe">
+        <div class="gh">API client · src/api</div>
+        <div class="box" id="streamChat"><span class="f">streamChat.js</span><span class="d">fetch POST · SSE parser (ReadableStream) · AbortController · optional X-API-Key</span></div>
+      </div>
+
+      <div class="row">
+        <div class="box cyl" id="ls" style="text-align:center; padding:12px 8px; background:#f7f9fc"><b>localStorage</b><span class="d">conversations · theme</span></div>
+        <div class="box" style="background:#f7f9fc"><b>Vite dev :5173</b><span class="d">proxies /api → :8000 · prod: built into frontend/dist</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 2. BACKEND ===================== -->
+  <div class="zone z-be" style="left:540px; top:140px; width:400px; height:1020px;">
+    <div class="zh">② Backend API <small>api/main.py · FastAPI</small></div>
+    <div class="col">
+      <div class="box" style="background:var(--be-soft); border-color:transparent"><b>uvicorn</b><span class="d">--workers N · --proxy-headers · entry: main.py</span></div>
+
+      <div class="group g-be">
+        <div class="gh">Middleware</div>
+        <div class="box"><b>CORS allow-list</b><span class="d">CORS_ORIGINS</span></div>
+        <div class="box"><b>Request logging</b><span class="d">X-Request-ID · method · path · status · duration</span></div>
+      </div>
+
+      <div class="group g-be">
+        <div class="gh">Security dependencies</div>
+        <div class="box"><b>require_api_key</b><span class="d">X-API-Key header (APP_API_KEY, optional)</span></div>
+        <div class="box"><b>RateLimiter</b><span class="d">sliding window per client IP / minute</span></div>
+        <div class="box"><b>ChatRequest validation</b><span class="d">Pydantic · question ≤1000 chars · history ≤20 turns</span></div>
+      </div>
+
+      <div class="group g-be">
+        <div class="gh">Endpoints</div>
+        <div class="box" id="epStream"><span class="f">POST /api/chat/stream</span><span class="d">text/event-stream · runs <b>stream_agent()</b> in threadpool · errors → generic event</span></div>
+        <div class="box" id="epChat"><span class="f">POST /api/chat</span><span class="d">JSON · runs <b>run_agent()</b> (scripts / integrations)</span></div>
+        <div class="box" id="epReady"><span class="f">GET /api/health · /api/health/ready</span><span class="d">liveness · readiness (DB ping)</span></div>
+        <div class="box" id="epSpa"><span class="f">GET /*</span><span class="d">serves built React app (single container, same origin)</span></div>
+      </div>
+
+      <div class="group g-be">
+        <div class="gh">SSE event types</div>
+        <div class="box" id="sse" style="line-height:1.9">
+          <span class="tag t-ev">status</span><span class="tag t-ev">sql</span><span class="tag t-ev">result</span><span class="tag t-ev">chart</span><span class="tag t-ev">token</span><span class="tag t-ev">error</span><span class="tag t-ev">done</span>
+          <span class="d">Emitted by graph nodes via LangGraph get_stream_writer()</span>
+        </div>
+      </div>
+      <div class="box" style="background:var(--be-soft); border-color:transparent"><b>lifespan</b><span class="d">closes DB pool on shutdown</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== 3. AGENT ===================== -->
+  <div class="zone z-ag" id="agentZone" style="left:1010px; top:140px; width:790px; height:1020px;">
+    <div class="zh">③ AI Agent <small>agents/sql_analyst.py · LangGraph StateGraph</small></div>
+    <!-- nodes are positioned relative to the zone -->
+    <div class="pill" id="nStart" style="left:200px; top:56px;">START</div>
+    <div class="node" id="nInput" style="left:50px; top:110px;"><span class="f">input_guardrail</span><span class="ev"><span class="tag t-det">regex · no LLM</span></span><span class="d">Blocks write intent, PII requests, prompt injection, empty / too long</span></div>
+    <div class="node" id="nCurate" style="left:50px; top:198px;"><span class="f">curate_question</span><span class="ev"><span class="tag t-low">LLM low</span></span><span class="d">Intent classifier + standalone question (uses chat history)</span></div>
+    <div class="node" id="nPrompt" style="left:50px; top:286px;"><span class="f">prompt_context_query</span><span class="ev"><span class="tag t-det">cached</span></span><span class="d">Schema (cols, FKs, samples) · sensitive columns hidden · SQL rules</span></div>
+    <div class="node" id="nGen" style="left:50px; top:374px;"><span class="f">generate_sql</span><span class="ev"><span class="tag t-med">LLM medium</span><span class="tag t-high">high on retry</span></span><span class="d">Structured output {answerable, sql, reason}</span></div>
+    <div class="node" id="nSafe" style="left:50px; top:462px;"><span class="f">is_safe_sql</span><span class="ev"><span class="tag t-ev">sql</span></span><span class="d">sqlglot validator (authoritative) + LLM judge <span class="tag t-low">low</span> · caps LIMIT</span></div>
+    <div class="node" id="nExec" style="left:50px; top:550px;"><span class="f">execute_sql</span><span class="ev"><span class="tag t-ev">result</span></span><span class="d">READ ONLY txn · statement timeout · row cap · PII redaction</span></div>
+    <div class="node" id="nViz" style="left:50px; top:638px;"><span class="f">choose_visualization</span><span class="ev"><span class="tag t-ev">chart</span></span><span class="d">Deterministic: metric · bar · line · pie · scatter · table</span></div>
+    <div class="node" id="nAns" style="left:50px; top:726px;"><span class="f">represent_final_answer</span><span class="ev"><span class="tag t-med">LLM medium</span><span class="tag t-ev">token</span></span><span class="d">Streams summary tokens · redacts PII in the answer</span></div>
+    <div class="pill" id="nEnd" style="left:200px; top:820px;">END</div>
+
+    <div class="node term" id="nRefuse" style="left:545px; top:152px;"><span class="f">refuse</span><span class="d">Polite refusal message → END</span></div>
+    <div class="node term" id="nCancel" style="left:545px; top:462px;"><span class="f">cancel_query</span><span class="d">"Not a safe, read-only query" + reason → END</span></div>
+    <div class="node term" id="nFail" style="left:545px; top:614px;"><span class="f">explain_failure</span><span class="d">Unanswerable / retries exhausted → END</span></div>
+
+    <div class="state">
+      <b>AgentState</b> (Models/schema.py): user_question · history · intent · curated_que · prompt_context_query · generated_sql_query · is_safe · comments ·
+      sql_query_execution_result · sql_error · attempts · chart · final_answer · messages<br/>
+      <b>Structured outputs:</b> curationSchema · sqlGenerationSchema · judgeSchema &nbsp;·&nbsp; <b>Entry points:</b> stream_agent() (UI events) · run_agent() (evals, JSON API)
+    </div>
+  </div>
+
+  <!-- ===================== 4. MODULES ===================== -->
+  <div class="zone z-md" style="left:1860px; top:140px; width:470px; height:1020px;">
+    <div class="zh">④ Guardrails &amp; Utilities <small>shared Python modules</small></div>
+    <div class="col">
+      <div class="group g-gd" id="guards">
+        <div class="gh">Guardrails · guardrails/</div>
+        <div class="box" id="gInput"><span class="f">input_guard.py</span><span class="d">Regex: modify intent · sensitive data · prompt injection · length</span></div>
+        <div class="box" id="gSql"><span class="f">sql_guard.py</span><span class="d">sqlglot parse · exactly 1 SELECT · no DML/DDL/GRANT/COPY/INTO/FOR UPDATE · no pg_sleep, dblink, file &amp; system-catalog access · sensitive columns · LIMIT ≤ 500 · fails closed</span></div>
+        <div class="box" id="gPii"><span class="f">pii.py</span><span class="d">Redacts emails, phones, cards (Luhn), API keys, JWTs, bearer tokens, passwords in results + answer</span></div>
+        <div class="box" style="background:#fff8f4">
+          <b>Defence in depth (5 layers)</b>
+          <span class="d">1 Input regex → 2 LLM intent classifier → 3 sqlglot validator → 4 LLM judge → 5 read-only DB role + READ ONLY txn</span>
+        </div>
+      </div>
+
+      <div class="group g-ut" id="utils">
+        <div class="gh">Utilities · utils/ · Models/</div>
+        <div class="box" id="uConfig"><span class="f">config.py</span><span class="d">pydantic-settings from env / .env · password URL-encoding</span></div>
+        <div class="box" id="uLlm"><span class="f">llm_pick.py</span><span class="d">Tier → model (low / medium / high) · cached ChatOpenAI clients · timeout + retries</span></div>
+        <div class="box" id="uDb"><span class="f">database.py · DatabaseUtil</span><span class="d">psycopg pool (health-checked, no prepared stmts) · schema cache (TTL) · read-only execute · JSON-safe rows</span></div>
+        <div class="box" id="uViz"><span class="f">visualization.py</span><span class="d">suggest_chart(): rule-based chart picker</span></div>
+        <div class="box"><span class="f">Models/schema.py</span><span class="d">AgentState + structured-output schemas</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 5. EXTERNAL ===================== -->
+  <div class="zone z-ex" style="left:2390px; top:140px; width:410px; height:1020px;">
+    <div class="zh">⑤ External Services</div>
+    <div class="col">
+      <div class="group g-ai" id="openai">
+        <div class="gh">OpenAI API</div>
+        <div class="box"><span class="tag t-low">low</span> <span class="f">gpt-5.6-luna</span><span class="d">curation · intent · LLM judge</span></div>
+        <div class="box"><span class="tag t-med">medium</span> <span class="f">gpt-5.6-terra</span><span class="d">SQL generation · final answer (streamed)</span></div>
+        <div class="box"><span class="tag t-high">high</span> <span class="f">gpt-5.6-sol</span><span class="d">SQL self-correction after a DB error</span></div>
+      </div>
+
+      <div class="group g-db" id="supabase" style="margin-top:40px">
+        <div class="gh">Supabase · PostgreSQL</div>
+        <div class="box" id="pooler"><b>Supavisor pooler</b><span class="d">session :5432 · user analyst_ro.&lt;project-ref&gt; · sslmode=require</span></div>
+        <div class="box">
+          <b>Tables (public)</b>
+          <span class="d">neighbourhoods · hosts · listings · amenities · listing_amenities · guests · bookings · reviews</span>
+        </div>
+        <div class="box"><b>Role analyst_ro</b> <span class="tag t-ok">agent uses this</span>
+          <span class="d">LOGIN · default_transaction_read_only · statement_timeout · column-level SELECT (no email / phone)</span></div>
+        <div class="box"><b>Row Level Security</b><span class="d">policy analyst_read (SELECT) on all 8 tables</span></div>
+        <div class="box"><b>REST API locked</b><span class="d">anon / authenticated privileges revoked (PostgREST)</span></div>
+        <div class="box"><b>Admin role (postgres)</b><span class="d">used only by setup_db.py, never at runtime</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 6. DEVOPS / OFFLINE ===================== -->
+  <div class="zone z-ops" style="left:40px; top:1230px; width:2760px; height:290px;">
+    <div class="zh">⑥ Setup · Quality · Delivery <small>offline tooling, CI/CD and hosting</small></div>
+    <div class="row" style="gap:14px; align-items:stretch">
+      <div class="group g-ops" id="opsDb">
+        <div class="gh">Database setup · db/</div>
+        <div class="box"><span class="f">schema.sql</span><span class="d">8 tables, PK/FK, CHECKs, indexes</span></div>
+        <div class="box" id="setupDb"><span class="f">setup_db.py</span><span class="d">Deterministic seed (COPY) · create analyst_ro · column grants · RLS · revoke API roles · ANALYZE</span></div>
+      </div>
+      <div class="group g-ops" id="opsEval">
+        <div class="gh">Evaluation · evals/</div>
+        <div class="box"><span class="f">dataset.jsonl</span><span class="d">27 gold cases: simple · aggregation · join · ranking · time series · follow-up · guardrail</span></div>
+        <div class="box" id="runEvals"><span class="f">run_evals.py</span><span class="d">Execution accuracy · guardrail accuracy · LLM-judge answer score · p50/p95 latency · --min-accuracy gate</span></div>
+      </div>
+      <div class="group g-ops">
+        <div class="gh">Tests · tests/</div>
+        <div class="box"><b>pytest (offline)</b><span class="d">SQL guard · input guard · PII · charts · config · API/SSE · every graph path with fake LLM + DB</span></div>
+        <div class="box"><b>ruff</b><span class="d">lint</span></div>
+      </div>
+      <div class="group g-ops">
+        <div class="gh">CI/CD · .github/workflows</div>
+        <div class="box"><b>GitHub Actions</b><span class="d">lint → pytest → UI build → Docker build · manual eval job (Postgres service + OPENAI secret)</span></div>
+        <div class="box"><b>Config</b><span class="d">.env (git-ignored) · .env.example documents every variable</span></div>
+      </div>
+      <div class="group g-ops">
+        <div class="gh">Packaging &amp; hosting</div>
+        <div class="box"><b>Dockerfile</b><span class="d">Node builds UI → Python 3.13 slim + uv · non-root · HEALTHCHECK</span></div>
+        <div class="box"><b>docker-compose.yml</b><span class="d">local Postgres + db-setup job + app</span></div>
+        <div class="box"><b>Render (render.yaml)</b><span class="d">Docker web service · health /api/health · secrets in dashboard</span></div>
+      </div>
+      <div class="group g-ops">
+        <div class="gh">Observability</div>
+        <div class="box"><b>Structured logs</b><span class="d">request IDs · guardrail blocks logged with SQL</span></div>
+        <div class="box"><b>LangSmith (optional)</b><span class="d">traces every node, prompt, token count &amp; latency</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="li"><svg width="54" height="10"><line x1="0" y1="5" x2="46" y2="5" stroke="#16161a" stroke-width="2.4" marker-end="url(#m-req)"/></svg>Request / call</div>
+    <div class="li"><svg width="54" height="10"><line x1="0" y1="5" x2="46" y2="5" stroke="#d4561f" stroke-width="2.4" stroke-dasharray="7 5" marker-end="url(#m-sse)"/></svg>Streaming response (SSE)</div>
+    <div class="li"><svg width="54" height="10"><line x1="0" y1="5" x2="46" y2="5" stroke="#12916a" stroke-width="2.4" marker-end="url(#m-ag)"/></svg>LangGraph edge</div>
+    <div class="li"><svg width="54" height="10"><line x1="0" y1="5" x2="46" y2="5" stroke="#8a8d96" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#m-gray)"/></svg>Branch to terminal node</div>
+    <div class="li"><svg width="54" height="10"><line x1="0" y1="5" x2="46" y2="5" stroke="#8a6200" stroke-width="2" stroke-dasharray="2 4" marker-end="url(#m-ops)"/></svg>Offline / setup</div>
+    <div class="li"><span class="num">1</span>Numbered steps = one question, end to end</div>
+  </div>
+</div>
+
+<script>
+// ---------- connector drawing ----------
+const svg = document.getElementById('wires')
+const canvas = document.getElementById('canvas').getBoundingClientRect()
+const NS = 'http://www.w3.org/2000/svg'
+const STYLES = {
+  req:  { stroke: '#16161a', width: 2.4, dash: '',    marker: 'm-req' },
+  sse:  { stroke: '#d4561f', width: 2.4, dash: '8 5', marker: 'm-sse' },
+  ag:   { stroke: '#12916a', width: 2.2, dash: '',    marker: 'm-ag' },
+  gray: { stroke: '#8a8d96', width: 2,   dash: '5 4', marker: 'm-gray' },
+  ops:  { stroke: '#8a6200', width: 2.2, dash: '2 5', marker: 'm-ops' },
+  db:   { stroke: '#1f8f5f', width: 2.4, dash: '',    marker: 'm-db' },
+}
+
+function pt(id, side, t = 0.5) {
+  const r = document.getElementById(id).getBoundingClientRect()
+  const x = r.left - canvas.left, y = r.top - canvas.top
+  if (side === 'l') return [x, y + r.height * t]
+  if (side === 'r') return [x + r.width, y + r.height * t]
+  if (side === 't') return [x + r.width * t, y]
+  return [x + r.width * t, y + r.height]
+}
+
+function label(text, x, y, style, num, rot) {
+  const g = document.createElementNS(NS, 'g')
+  const t = document.createElementNS(NS, 'text')
+  t.setAttribute('class', 'wl'); t.setAttribute('x', x); t.setAttribute('y', y + 4)
+  t.setAttribute('text-anchor', 'middle')
+  if (style === 'sse') t.setAttribute('fill', '#b2461a')
+  t.textContent = text
+  g.appendChild(t); svg.appendChild(g)
+  if (rot) g.setAttribute('transform', 'rotate(-90 ' + x + ' ' + y + ')')
+  const b = t.getBBox()
+  const pad = 5
+  const bg = document.createElementNS(NS, 'rect')
+  bg.setAttribute('x', b.x - pad - (num ? 26 : 0)); bg.setAttribute('y', b.y - 3)
+  bg.setAttribute('width', b.width + pad * 2 + (num ? 26 : 0)); bg.setAttribute('height', b.height + 6)
+  bg.setAttribute('rx', 6); bg.setAttribute('fill', '#ffffff'); bg.setAttribute('stroke', '#e2e2e6')
+  g.insertBefore(bg, t)
+  if (num) {
+    const c = document.createElementNS(NS, 'circle')
+    c.setAttribute('cx', b.x - 13); c.setAttribute('cy', b.y + b.height / 2); c.setAttribute('r', 10)
+    c.setAttribute('fill', style === 'sse' ? '#d4561f' : '#16161a')
+    const n = document.createElementNS(NS, 'text')
+    n.setAttribute('x', b.x - 13); n.setAttribute('y', b.y + b.height / 2 + 4)
+    n.setAttribute('text-anchor', 'middle'); n.setAttribute('fill', '#fff')
+    n.setAttribute('font-size', '11.5'); n.setAttribute('font-weight', '800'); n.textContent = num
+    g.appendChild(c); g.appendChild(n)
+  }
+}
+
+// points: list of [x,y]; draws a polyline with rounded corners
+function wire(points, style, text, opts = {}) {
+  const s = STYLES[style]
+  const r = 10
+  let d = `M${points[0][0]},${points[0][1]}`
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1], [cx, cy] = points[i], [nx, ny] = points[i + 1]
+    const d1 = Math.hypot(cx - px, cy - py), d2 = Math.hypot(nx - cx, ny - cy)
+    const k1 = Math.min(r, d1 / 2), k2 = Math.min(r, d2 / 2)
+    const ax = cx - ((cx - px) / d1) * k1, ay = cy - ((cy - py) / d1) * k1
+    const bx = cx + ((nx - cx) / d2) * k2, by = cy + ((ny - cy) / d2) * k2
+    d += ` L${ax},${ay} Q${cx},${cy} ${bx},${by}`
+  }
+  const last = points[points.length - 1]
+  d += ` L${last[0]},${last[1]}`
+  const p = document.createElementNS(NS, 'path')
+  p.setAttribute('d', d); p.setAttribute('fill', 'none'); p.setAttribute('stroke', s.stroke)
+  p.setAttribute('stroke-width', s.width); if (s.dash) p.setAttribute('stroke-dasharray', s.dash)
+  p.setAttribute('stroke-linejoin', 'round'); p.setAttribute('marker-end', `url(#${s.marker})`)
+  svg.appendChild(p)
+  if (text) {
+    // label on the longest segment unless a position is given
+    let lx, ly
+    if (opts.at) [lx, ly] = opts.at
+    else {
+      let best = 0
+      for (let i = 1; i < points.length; i++) {
+        const len = Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
+        if (len > best) { best = len; lx = (points[i][0] + points[i - 1][0]) / 2; ly = (points[i][1] + points[i - 1][1]) / 2 }
+      }
+    }
+    label(text, lx + (opts.dx || 0), ly + (opts.dy || 0), style, opts.num, opts.rot)
+  }
+}
+
+// Horizontal link with one vertical jog in the gap between zones.
+function hlink(a, b, style, text, opts = {}) {
+  const midX = opts.midX ?? (a[0] + b[0]) / 2
+  const pts = a[1] === b[1] ? [a, b] : [a, [midX, a[1]], [midX, b[1]], b]
+  wire(pts, style, text, opts)
+}
+
+// ---------- 1 → 2: frontend to backend ----------
+const feZ = document.querySelector('.z-fe').getBoundingClientRect()
+const feL = feZ.left - canvas.left, feR = feZ.right - canvas.left
+const sc = pt('streamChat', 'r', 0.3), ep = pt('epStream', 'l', 0.3)
+hlink(sc, ep, 'req', 'POST {question, history}', { num: '2', midX: 506, at: [506, ep[1] + 110], rot: true })
+const ep2 = pt('epStream', 'l', 0.8), sc2 = pt('streamChat', 'r', 0.75)
+hlink(ep2, sc2, 'sse', 'SSE events', { num: '7', midX: 484, at: [484, sc2[1] - 60], rot: true })
+const uh = pt('useHealth', 'r', 0.5), er = pt('epReady', 'l', 0.5)
+hlink(uh, er, 'gray', '', { midX: 527 })
+
+// user → composer (down the right edge of the frontend zone)
+const u = pt('user', 'r', 0.5), c = pt('composer', 'r', 0.5)
+const edge = feR - 9
+wire([u, [edge, u[1]], [edge, c[1]], c], 'req', 'types question', { num: '1', at: [edge, (u[1] + c[1]) / 2], rot: true })
+// streamChat → Message / ResultCard (left edge)
+const s1 = pt('streamChat', 'l', 0.5), m1 = pt('message', 'l', 0.5)
+const ledge = feL + 9
+wire([s1, [ledge, s1[1]], [ledge, m1[1]], m1], 'sse', 'render live', { num: '8', at: [ledge, (s1[1] + m1[1]) / 2], rot: true })
+
+// ---------- 2 → 3: backend to agent ----------
+const eps = pt('epStream', 'r', 0.5), st = pt('nStart', 'l', 0.5)
+hlink(eps, st, 'req', 'stream_agent()', { num: '3', midX: 975, at: [1110, st[1]] })
+const epc = pt('epChat', 'r', 0.5)
+hlink(epc, st, 'gray', 'run_agent()', { midX: 955, at: [955, (epc[1] + st[1]) / 2 + 120], rot: true })
+const nAnsL = pt('nAns', 'l', 0.6), sseR = pt('sse', 'r', 0.5)
+hlink(nAnsL, sseR, 'sse', 'node events', { num: '6', midX: 994, at: [994, (nAnsL[1] + sseR[1]) / 2], rot: true })
+
+// ---------- agent graph ----------
+const chain = ['nStart', 'nInput', 'nCurate', 'nPrompt', 'nGen', 'nSafe', 'nExec', 'nViz', 'nAns', 'nEnd']
+const chainLabels = { nCurate: 'allowed', nPrompt: 'data_question', nSafe: 'SQL', nExec: 'safe', nViz: 'rows' }
+for (let i = 0; i < chain.length - 1; i++) {
+  const a = pt(chain[i], 'b', 0.5), b = pt(chain[i + 1], 't', 0.5)
+  wire([[a[0], a[1]], [a[0], b[1]]], 'ag', chainLabels[chain[i + 1]] || '', { dx: 58 })
+}
+const gut = (pt('nInput', 'r')[0] + pt('nRefuse', 'l')[0]) / 2
+const inR = pt('nInput', 'r', 0.5), rfL = pt('nRefuse', 'l', 0.3)
+wire([inR, [gut, inR[1]], [gut, rfL[1]], rfL], 'gray', 'blocked', { at: [gut, inR[1] - 13] })
+const cuR = pt('nCurate', 'r', 0.5), rfL2 = pt('nRefuse', 'l', 0.75)
+wire([cuR, [gut, cuR[1]], [gut, rfL2[1]], rfL2], 'gray', 'not a data question', { at: [gut + 40, cuR[1] + 16] })
+const sfR = pt('nSafe', 'r', 0.5), cnL = pt('nCancel', 'l', 0.5)
+wire([sfR, cnL], 'gray', 'unsafe', { at: [gut, sfR[1] - 13] })
+const gnR = pt('nGen', 'r', 0.5), flR = pt('nFail', 'r', 0.3)
+const outer = pt('nCancel', 'r')[0] + 10
+wire([gnR, [outer, gnR[1]], [outer, flR[1]], flR], 'gray', 'not answerable', { at: [pt('nCancel', 'l')[0] + 110, gnR[1]] })
+const exR = pt('nExec', 'r', 0.5), flL = pt('nFail', 'l', 0.5)
+wire([exR, [gut, exR[1]], [gut, flL[1]], flL], 'gray', 'error · retries exhausted', { at: [gut + 60, exR[1] - 14] })
+// retry loop: execute_sql → generate_sql
+const exL = pt('nExec', 'l', 0.5), gnL = pt('nGen', 'l', 0.5)
+const lx = exL[0] - 26
+wire([exL, [lx, exL[1]], [lx, gnL[1]], gnL], 'ag', 'retry on DB error', { at: [lx, (exL[1] + gnL[1]) / 2], rot: true })
+
+// ---------- 3 → 4/5: modules and external services ----------
+const az = document.getElementById('agentZone').getBoundingClientRect()
+const azR = az.right - canvas.left
+for (const id of ['gInput', 'gSql', 'gPii', 'uLlm', 'uDb', 'uViz']) {
+  const t = pt(id, 'l', 0.5)
+  wire([[azR, t[1]], t], 'req', '', {})
+}
+label('imports', azR + 30, pt('gInput', 'l')[1] - 22, 'req')
+const oa = pt('openai', 'l', 0.5), ul = pt('uLlm', 'r', 0.5)
+hlink(ul, oa, 'req', 'LLM calls', { num: '4', midX: 2348, at: [2348, (ul[1] + oa[1]) / 2], rot: true })
+const sb = pt('pooler', 'l', 0.5), ud = pt('uDb', 'r', 0.5)
+hlink(ud, sb, 'db', 'SELECT as analyst_ro', { num: '5', midX: 2372, at: [2372, (ud[1] + sb[1]) / 2], rot: true })
+
+// ---------- offline ----------
+const mainBottom = az.bottom - canvas.top
+const band = document.querySelector('.z-ops').getBoundingClientRect().top - canvas.top
+const y1 = mainBottom + (band - mainBottom) * 0.33, y2 = mainBottom + (band - mainBottom) * 0.7
+const rev = [pt('opsEval', 't', 0.5)[0], band], agB = [az.left - canvas.left + 300, mainBottom]
+wire([rev, [rev[0], y1], [agB[0], y1], agB], 'ops', 'run_agent() on 27 gold cases', { at: [(rev[0] + agB[0]) / 2, y1] })
+const sdb = [pt('opsDb', 't', 0.5)[0], band], sup = pt('supabase', 'b', 0.5)
+wire([sdb, [sdb[0], y2], [sup[0], y2], sup], 'ops', 'one-time setup (ADMIN_DATABASE_URL): schema · seed · analyst_ro · RLS', { at: [1750, y2] })
+
+document.body.dataset.ready = '1'
+</script>
+</body>
+</html>

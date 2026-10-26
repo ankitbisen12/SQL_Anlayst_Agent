@@ -1,0 +1,24 @@
+# Render Blueprint: one Docker web service that serves both the API and the React UI.
+# The database lives on Neon / Supabase (free tier) - see README "Deployment".
+services:
+  - type: web
+    name: airbnb-sql-analyst
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_URL          # read-only role connection string, with ?sslmode=require
+        sync: false
+      - key: APP_API_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: ENABLE_LLM_JUDGE
+        value: "true"

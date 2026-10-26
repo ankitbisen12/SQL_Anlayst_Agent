@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+evals/results/
+*.png
+
+
+# md files
+Flow.md
+Implement.md
+notes.md
+!docs/*.png

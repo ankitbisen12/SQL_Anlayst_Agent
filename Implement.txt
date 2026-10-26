@@ -1,0 +1,30 @@
+# This analyst is used for airbnb data database
+
+
+# Already implemented
+ - SQL Analyst Agent AI code
+ - Utlity functions for used in AI Agent
+ - Which model to pick based on levels 
+
+# Frontend Need to implement 
+- Frontend UI where our chatbot kind of thing present i.e tech should be React , javascript 
+- Response can be text , table or some kind of charts or visualization.
+- Response should be streaming. 
+
+# AI practices need to implement
+ - Guardrails against the User response since we are fetching the data against the database 
+   so any command that edit anything or changes anything in database should not allow.
+ - Guardrails against the sensitive info like email , and credentials etc.
+ - Optimization of AI Agent
+ - Evaluation of AI Agent
+
+# Database related stuffs:
+ -  how to setup the database i.e it should be present locally or any online place i.e any free online sql server 
+ - how to connect the database with AI Agent 
+ - build the setup for database
+
+# How to connect database with frontend and AI Agent
+
+# How to deploy AI Agent 
+
+

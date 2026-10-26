@@ -1,0 +1,48 @@
+# Full local stack:  docker compose up --build   ->  http://localhost:8000
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: airbnb_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_admin}
+      POSTGRES_DB: airbnb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airbnb_admin -d airbnb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot job: schema + seed data + read-only role. Safe to re-run (idempotent).
+  db-setup:
+    build: .
+    command: ["python", "db/setup_db.py"]
+    environment:
+      ADMIN_DATABASE_URL: postgresql://airbnb_admin:${POSTGRES_PASSWORD:-change_me_admin}@db:5432/airbnb
+      ANALYST_RO_PASSWORD: ${ANALYST_RO_PASSWORD:-change_me_ro}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # The agent only ever connects with the read-only role.
+      DATABASE_URL: postgresql://analyst_ro:${ANALYST_RO_PASSWORD:-change_me_ro}@db:5432/airbnb
+      CORS_ORIGINS: http://localhost:8000,http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:

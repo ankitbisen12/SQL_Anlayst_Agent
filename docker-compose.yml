@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: airbnb_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_admin}
       POSTGRES_DB: airbnb
-    ports:
-      - "127.0.0.1:8000:8000"
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -37,9 +35,12 @@ services:
     environment:
       # The agent only ever connects with the read-only role.
       DATABASE_URL: postgresql://analyst_ro:${ANALYST_RO_PASSWORD:-change_me_ro}@db:5432/airbnb
+      ADMIN_DATABASE_URL: ""
+      ANALYST_RO_PASSWORD: ""
+      POSTGRES_PASSWORD: ""
       CORS_ORIGINS: http://localhost:8000,http://localhost:5173
     ports:
-      - "8000:8000"
+      - "127.0.0.1:5432:5432"
     depends_on:
       db-setup:
         condition: service_completed_successfully
